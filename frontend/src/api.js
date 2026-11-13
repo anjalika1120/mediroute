@@ -32,6 +32,9 @@ export const api = {
   normalizeDrug: (raw_name) => call('/api/ai/normalize-drug', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ raw_name }) }),
   parseOutbreak: (raw_text_report) => call('/api/ai/outbreak', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ raw_text_report }) }),
   transferJustification: (facts) => call('/api/ai/transfer-justification', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(facts) }),
+  transferOrders: () => call('/api/transfer-orders'),
+  createTransferOrder: (body) => call('/api/transfer-orders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
+  updateTransferOrder: (id, status) => call('/api/transfer-orders/' + id + '?' + qs({ status }), { method: 'PATCH' }),
   clear: () => call('/api/clear', { method: 'POST' }),
 }
 

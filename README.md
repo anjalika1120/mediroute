@@ -11,7 +11,7 @@ facilities and reorder quantities, and explains every recommendation.
 - **PDF upload** (Add my data tab): reads tables from a text-based PDF, stores them in SQLite, then runs the normal analysis.
 - **Map tab:** registered hospitals as coloured dots for a chosen medicine, a locality filter, and the shortest road route between two hospitals.
   Red = shortage, green = right amount, yellow = excess, grey = missing/too little data.
-- Forecasts, stockout and expiry alerts, transfers, reorders, before/after replay, data checks, and a typed-entry form.
+- Forecasts, stockout and expiry alerts, transfer recommendations and requests, reorders, before/after replay, data checks, and a typed-entry form.
 
 ## Offline use on this computer
 
@@ -66,6 +66,8 @@ Open http://localhost:5173.
 
 `GET /api/analysis` (all results), `GET /api/forecast?facility=&medicine=`, `GET /api/evaluation`,
 `GET /api/facilities`, `POST /api/upload-pdf`, `GET /api/sample-pdf`, `GET/POST /api/records`, `DELETE /api/records/{id}`, `POST /api/sample`, `POST /api/clear`.
+Medicine transfer requests are available through `GET/POST /api/transfer-orders` and `PATCH /api/transfer-orders/{id}?status=Accepted|Declined|Cancelled`. Requests are saved locally; acceptance does not deduct or reserve stock. Update inventory after a transfer is completed.
+Order email supports Gmail SMTP with a Google App Password or Gmail API OAuth. For SMTP, add `SMTP_USER` and `SMTP_PASSWORD` to `backend/.env` (the password must be a Google App Password); the defaults are `smtp.gmail.com` on port `465`. For OAuth, enable Gmail API in Google Cloud, create an OAuth Desktop client, save its JSON as `backend/google_oauth_client.json`, install requirements, and run `python setup_gmail_oauth.py` from `backend`. Sign in with the dedicated MediRoute Gmail account and approve Gmail send access once. Local `.env`, OAuth client, and token files are ignored by Git.
 Settings (spike, safety, buffer, season, min_qty, transit) are query parameters on the first three.
 
 ## PDF format

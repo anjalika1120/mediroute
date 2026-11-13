@@ -4,3 +4,5 @@ __pycache__/
 *.db
 .venv/
 .env
+backend/google_oauth_client.json
+backend/gmail_token.json

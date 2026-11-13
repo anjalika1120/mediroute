@@ -3,6 +3,9 @@ from typing import Optional
 from datetime import date
 import pathlib
 import os
+import secrets
+from email.message import EmailMessage
+from urllib.parse import urlencode
 from fastapi.staticfiles import StaticFiles
 import pandas as pd
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form
@@ -133,6 +136,16 @@ class TransferJustificationRequest(BaseModel):
     transit_distance_km: float
     is_cold_chain: bool = False
 
+class TransferOrderRequest(BaseModel):
+    medicine: str
+    source_facility: str
+    target_facility: str
+    quantity: int
+    donor_email: str
+    requester_email: str
+    unit_price: float = 20
+    transit_days: int = 1
+
 @app.post("/api/ai/normalize-drug")
 def normalize_drug(request: DrugMatchRequest):
     """Suggest a canonical NLEM 2022 starter-catalog name for a raw label."""
@@ -165,6 +178,99 @@ def records():
         (SELECT COUNT(*) FROM usage u WHERE u.facility_id=b.facility_id AND u.medicine_id=b.medicine_id AND u.used IS NOT NULL) usage_days
         FROM batches b JOIN facilities f ON f.id=b.facility_id JOIN medicines m ON m.id=b.medicine_id ORDER BY b.id""").fetchall()
     c.close(); return [dict(x) for x in r]
+
+@app.get("/api/transfer-orders")
+def transfer_orders():
+    c = db.conn()
+    rows = c.execute("SELECT id, medicine, source_facility, target_facility, quantity, status, donor_email, requester_email, unit_price, transit_days, created_at FROM transfer_orders ORDER BY id DESC").fetchall()
+    c.close()
+    return [dict(row) for row in rows]
+
+@app.post("/api/transfer-orders")
+def create_transfer_order(order: TransferOrderRequest):
+    if order.quantity <= 0 or not all(x.strip() for x in (order.medicine, order.source_facility, order.target_facility)):
+        raise HTTPException(422, "Choose a medicine, donor and receiving hospital, and a positive quantity.")
+    import re
+    email_re = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+    if not email_re.match(order.donor_email.strip()) or not email_re.match(order.requester_email.strip()):
+        raise HTTPException(422, "Enter valid email addresses for both the donor and requesting hospital.")
+    if order.unit_price < 0 or order.transit_days < 0: raise HTTPException(422, "Price and delivery estimate cannot be negative.")
+    token = secrets.token_urlsafe(32)
+    c = db.conn()
+    try:
+        pending = c.execute("SELECT 1 FROM transfer_orders WHERE medicine=? AND source_facility=? AND target_facility=? AND status='Requested' LIMIT 1",
+                            (order.medicine, order.source_facility, order.target_facility)).fetchone()
+        if pending:
+            raise HTTPException(409, "A request for this medicine and route is already pending.")
+        c.execute("INSERT INTO transfer_orders(medicine, source_facility, target_facility, quantity, donor_email, requester_email, unit_price, transit_days, response_token) VALUES(?,?,?,?,?,?,?,?,?)",
+                  (order.medicine, order.source_facility, order.target_facility, order.quantity, order.donor_email.strip(), order.requester_email.strip(), order.unit_price, order.transit_days, token))
+        c.commit()
+        saved = c.execute("SELECT last_insert_rowid()").fetchone()[0]
+    finally:
+        c.close()
+    _send_order_email(order, saved, token)
+    return {"ok": True, "id": saved}
+
+def _send_email(to, subject, text_body, html_body):
+    message = EmailMessage(); message["Subject"] = subject; message["To"] = to
+    message.set_content(text_body); message.add_alternative(html_body, subtype="html")
+    try:
+        smtp_user = os.getenv("SMTP_USER", "").strip()
+        smtp_password = os.getenv("SMTP_PASSWORD", "").replace(" ", "")
+        if smtp_user or smtp_password:
+            if not smtp_user or not smtp_password:
+                raise HTTPException(503, "Set both SMTP_USER and SMTP_PASSWORD in backend/.env, then restart the backend.")
+            from .smtp_mailer import send_message
+            send_message(message, smtp_user=smtp_user, password=smtp_password)
+            return
+        from .gmail_mailer import send_message
+        send_message(message)
+    except FileNotFoundError:
+        raise HTTPException(503, "Email is not configured. Set SMTP_USER and SMTP_PASSWORD in backend/.env, or connect Gmail OAuth.")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(502, f"Gmail could not send this message: {exc}")
+
+def _send_order_email(order, order_id, token):
+    base = os.getenv("MEDIROUTE_PUBLIC_URL", "http://localhost:5173").rstrip("/")
+    accept = f"{base}/api/transfer-orders/{order_id}/respond?" + urlencode({"token": token, "status": "Accepted"})
+    decline = f"{base}/api/transfer-orders/{order_id}/respond?" + urlencode({"token": token, "status": "Declined"})
+    total = order.quantity * order.unit_price
+    subject = f"Medicine transfer request: {order.medicine} ({order.quantity} units)"
+    text_body = (f"{order.target_facility} requests {order.quantity} units of {order.medicine} from {order.source_facility}. "
+                 f"Indicative total: INR {total:.2f} (INR {order.unit_price:.2f}/unit). Estimated delivery: {order.transit_days} day(s).\n\n"
+                 f"Accept: {accept}\nDecline: {decline}")
+    html = f"<p><b>{order.target_facility}</b> requests {order.quantity} units of {order.medicine} from {order.source_facility}.</p><p>Indicative total: <b>₹{total:.2f}</b> (₹{order.unit_price:.2f}/unit). Estimated delivery: {order.transit_days} day(s).</p><p><a href='{accept}'>Accept request</a> &nbsp; <a href='{decline}'>Decline request</a></p><p>Price is an estimate and should be confirmed by the donor.</p>"
+    _send_email(order.donor_email, subject, text_body, html)
+
+def _send_acceptance_email(row):
+    total = row["quantity"] * row["unit_price"]
+    subject = f"Transfer accepted: {row['medicine']}"
+    body = f"{row['source_facility']} accepted your request for {row['quantity']} units of {row['medicine']}. Indicative total: INR {total:.2f} (INR {row['unit_price']:.2f}/unit). Estimated delivery: {row['transit_days']} day(s). Confirm final price and delivery with the donor."
+    _send_email(row["requester_email"], subject, body, f"<p>{row['source_facility']} accepted your request for {row['quantity']} units of {row['medicine']}.</p><p>Indicative total: <b>₹{total:.2f}</b> (₹{row['unit_price']:.2f}/unit). Estimated delivery: <b>{row['transit_days']} day(s)</b>.</p><p>Confirm final price and delivery with the donor.</p>")
+
+@app.get("/api/transfer-orders/{order_id}/respond")
+def respond_to_transfer_order(order_id: int, token: str, status: str):
+    if status not in ("Accepted", "Declined"): raise HTTPException(422, "Invalid response.")
+    c = db.conn(); row = c.execute("SELECT * FROM transfer_orders WHERE id=? AND response_token=? AND status='Requested'", (order_id, token)).fetchone()
+    if not row: c.close(); raise HTTPException(404, "This request is already handled or the link is invalid.")
+    c.execute("UPDATE transfer_orders SET status=? WHERE id=?", (status, order_id)); c.commit(); c.close()
+    if status == "Accepted": _send_acceptance_email(row)
+    return {"ok": True, "status": status}
+
+@app.patch("/api/transfer-orders/{order_id}")
+def update_transfer_order(order_id: int, status: str):
+    if status not in ("Accepted", "Declined", "Cancelled"):
+        raise HTTPException(422, "Status must be Accepted, Declined or Cancelled.")
+    c = db.conn()
+    row = c.execute("SELECT * FROM transfer_orders WHERE id=? AND status='Requested'", (order_id,)).fetchone()
+    cur = c.execute("UPDATE transfer_orders SET status=? WHERE id=? AND status='Requested'", (status, order_id))
+    c.commit(); c.close()
+    if not cur.rowcount:
+        raise HTTPException(404, "Pending transfer request not found.")
+    if status == "Accepted": _send_acceptance_email(row)
+    return {"ok": True}
 
 @app.post("/api/records")
 def add_record(r: Record):

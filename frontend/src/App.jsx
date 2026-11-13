@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { api } from './api'
-import { Alerts, Transfers, Reorders, Quality, About } from './pages'
+import { Alerts, Transfers, TransferOrders, Reorders, Quality, About } from './pages'
 import Forecast from './Forecast'
 import Evaluation from './Evaluation'
 import DataEntry from './DataEntry'
@@ -8,7 +8,7 @@ import MapPage from './MapPage'
 import BloodBank from './BloodBank'
 import ArrivalTemperature from './ArrivalTemperature'
 
-const TABS = [['data', 'Add my data'], ['alerts', 'Alerts'], ['blood', 'Blood bank'], ['temperature', 'Arrival temperature'], ['map', 'Map'], ['transfers', 'Transfers'], ['reorders', 'Reorders'],
+const TABS = [['data', 'Add my data'], ['alerts', 'Alerts'], ['blood', 'Blood bank'], ['temperature', 'Arrival temperature'], ['map', 'Map'], ['transfers', 'Transfers'], ['orders', 'Transfer orders'], ['reorders', 'Reorders'],
   ['forecast', 'Forecast'], ['quality', 'Data checks'], ['about', 'How it works']]
 export default function App() {
   const [params, setParams] = useState({ spike: 1.5, safety: 3, buffer: 2, season: 1, min_qty: 10, transit: 1, excess_x: 1.5, outbreak_multiplier: 1, outbreak_category: '', outbreak_region: '' })
@@ -68,6 +68,7 @@ export default function App() {
           {tab === 'alerts' && data && <Alerts rows={data.rows} />}
           {tab === 'map' && data && <MapPage offline={offline} rows={data.rows} refreshKey={data} recommendedTransfer={data.transfers[0]} />}
           {tab === 'transfers' && data && <Transfers items={data.transfers} />}
+          {tab === 'orders' && <TransferOrders />}
           {tab === 'reorders' && data && <Reorders rows={data.reorders} />}
           {tab === 'forecast' && data && <Forecast rows={data.rows} params={params} />}
           {tab === 'eval' && data && <Evaluation params={params} refreshKey={data} />}

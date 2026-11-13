@@ -3,7 +3,7 @@ import sqlite3, pathlib
 import pandas as pd
 
 DB = pathlib.Path(__file__).resolve().parent.parent / "mediflow.db"
-TABLES = ["usage_meta", "usage", "batches", "transit", "medicines", "facilities"]
+TABLES = ["transfer_orders", "usage_meta", "usage", "batches", "transit", "medicines", "facilities"]
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS facilities(id INTEGER PRIMARY KEY, name TEXT UNIQUE, lead_days INTEGER NOT NULL, locality TEXT, latitude REAL, longitude REAL,
     cold_chain_storage INTEGER NOT NULL DEFAULT 0, cold_chain_transport INTEGER NOT NULL DEFAULT 0);
@@ -17,12 +17,22 @@ CREATE TABLE IF NOT EXISTS usage(facility_id INT, medicine_id INT, day INT, used
 CREATE TABLE IF NOT EXISTS usage_meta(facility_id INT, medicine_id INT, last_date TEXT,
     PRIMARY KEY(facility_id, medicine_id));
 CREATE TABLE IF NOT EXISTS transit(from_id INT, to_id INT, days INT, PRIMARY KEY(from_id, to_id));
+CREATE TABLE IF NOT EXISTS transfer_orders(id INTEGER PRIMARY KEY, medicine TEXT NOT NULL, source_facility TEXT NOT NULL,
+    target_facility TEXT NOT NULL, quantity INT NOT NULL CHECK(quantity > 0), status TEXT NOT NULL DEFAULT 'Requested',
+    donor_email TEXT NOT NULL DEFAULT '', requester_email TEXT NOT NULL DEFAULT '',
+    unit_price REAL NOT NULL DEFAULT 20, transit_days INT NOT NULL DEFAULT 1, response_token TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
 """
 
 def conn():
     c = sqlite3.connect(DB)
     c.row_factory = sqlite3.Row
     c.executescript(SCHEMA)
+    order_cols = {r[1] for r in c.execute("PRAGMA table_info(transfer_orders)")}
+    for col, typ in (("donor_email", "TEXT NOT NULL DEFAULT ''"), ("requester_email", "TEXT NOT NULL DEFAULT ''"),
+                     ("unit_price", "REAL NOT NULL DEFAULT 20"), ("transit_days", "INT NOT NULL DEFAULT 1"),
+                     ("response_token", "TEXT NOT NULL DEFAULT ''")):
+        if col not in order_cols: c.execute(f"ALTER TABLE transfer_orders ADD COLUMN {col} {typ}")
     have = {r[1] for r in c.execute("PRAGMA table_info(facilities)")}      # add location columns to older databases
     for col, typ in [("locality", "TEXT"), ("latitude", "REAL"), ("longitude", "REAL")]:
         if col not in have:
