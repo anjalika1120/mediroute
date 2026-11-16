@@ -1,3 +1,4 @@
+
 """FastAPI server. Run:  uvicorn app.main:app --reload"""
 from typing import Optional
 from datetime import date
@@ -12,7 +13,7 @@ from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from app.supabase-sync import sync_all_hospitals
+from .supabase_sync import sync_all_hospitals
 from . import db
 from .seed import seed
 from .forecast import level, curve, fill
