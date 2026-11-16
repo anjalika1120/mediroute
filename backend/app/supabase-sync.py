@@ -28,6 +28,11 @@ def get_configured_hospitals():
             "https://ghusmdzyhwqykpxzghhc.supabase.co",
             "sb_publishable_emOKrBxBkeESy7oKry4Gaw_j023rHL7",
         ),
+        3: (
+            "Lotus Health Centre",
+            "https://apyxsiqjrhvzqrpxxmvh.supabase.co/rest/v1/",
+            "sb_publishable_CX7KveCk5sRi76vtU8FIlg_fVu2YdBB",
+        ),
     }
 
     for i in range(1, 11):
